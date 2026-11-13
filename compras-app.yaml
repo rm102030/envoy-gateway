@@ -1,0 +1,142 @@
+
+# =====================================================
+# 1. NAMESPACE
+# =====================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: compras
+---
+# =====================================================
+# 2. CONFIGMAP - PAGINA WEB
+# =====================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compras-web
+  namespace: compras
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Aplicación Compras</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          background: #eef3f8;
+          text-align: center;
+          padding: 70px 15px;
+        }
+        .card {
+          background: white;
+          padding: 40px;
+          border-radius: 15px;
+          max-width: 550px;
+          margin: auto;
+          box-shadow: 0 4px 15px #ccd;
+        }
+        h1 { color: #1455a0; }
+        .info {
+          background: #e8f1ff;
+          padding: 15px;
+          margin: 12px;
+          border-radius: 8px;
+        }
+        .status {
+          color: #168044;
+          font-weight: bold;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>APLICACIÓN COMPRAS</h1>
+        <p class="status">Aplicación desplegada correctamente en Kubernetes</p>
+        <div class="info"><strong>Namespace:</strong> compras</div>
+        <div class="info"><strong>Servicio:</strong> compras-service</div>
+        <div class="info"><strong>IP del servicio:</strong> 10.96.84.235</div>
+        <div class="info"><strong>Puerto:</strong> 80</div>
+        <p>Gestionado mediante Envoy Gateway</p>
+      </div>
+    </body>
+    </html>
+---
+# =====================================================
+# 3. SERVICE
+# =====================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: compras-service
+  namespace: compras
+spec:
+  type: ClusterIP
+  selector:
+    app: compras-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# =====================================================
+# 4. DEPLOYMENT
+# =====================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compras-app
+  namespace: compras
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: compras-app
+  template:
+    metadata:
+      labels:
+        app: compras-app
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: web-content
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+              readOnly: true
+      volumes:
+        - name: web-content
+          configMap:
+            name: compras-web
+---
+# =====================================================
+# 5. HTTPROUTE - ENVOY GATEWAY
+# =====================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: compras-route
+  namespace: compras
+spec:
+  parentRefs:
+    - name: gateway-infra
+      namespace: default
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /compras
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: compras-service
+          port: 80

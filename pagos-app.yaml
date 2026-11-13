@@ -1,0 +1,143 @@
+
+# =====================================================
+# 1. NAMESPACE
+# =====================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pagos
+---
+# =====================================================
+# 2. CONFIGMAP - PAGINA WEB
+# =====================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pagos-web
+  namespace: pagos
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Aplicación Pagos</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          background: #eef3f8;
+          text-align: center;
+          padding: 70px 15px;
+        }
+        .card {
+          background: white;
+          padding: 40px;
+          border-radius: 15px;
+          max-width: 550px;
+          margin: auto;
+          box-shadow: 0 4px 15px #ccd;
+        }
+        h1 { color: #1455a0; }
+        .info {
+          background: #e8f1ff;
+          padding: 15px;
+          margin: 12px;
+          border-radius: 8px;
+        }
+        .status {
+          color: #168044;
+          font-weight: bold;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <h1>APLICACIÓN PAGOS</h1>
+        <p class="status">Aplicación desplegada correctamente en Kubernetes</p>
+        <div class="info"><strong>Namespace:</strong> pagos</div>
+        <div class="info"><strong>Servicio:</strong> pagos-service</div>
+        <div class="info"><strong>IP del servicio:</strong> 10.96.126.100</div>
+        <div class="info"><strong>Puerto:</strong> 80</div>
+        <p>Gestionado mediante Envoy Gateway</p>
+      </div>
+    </body>
+    </html>
+---
+# =====================================================
+# 3. DEPLOYMENT - DOS REPLICAS
+# =====================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pagos-app
+  namespace: pagos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pagos-app
+  template:
+    metadata:
+      labels:
+        app: pagos-app
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+              name: http
+          volumeMounts:
+            - name: web-content
+              mountPath: /usr/share/nginx/html/index.html
+              subPath: index.html
+              readOnly: true
+      volumes:
+        - name: web-content
+          configMap:
+            name: pagos-web
+---
+# =====================================================
+# 4. SERVICE - CLUSTERIP
+# =====================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: pagos-service
+  namespace: pagos
+spec:
+  type: ClusterIP
+  selector:
+    app: pagos-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+# =====================================================
+# 5. HTTPROUTE - ENVOY GATEWAY
+# =====================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: pagos-route
+  namespace: pagos
+spec:
+  parentRefs:
+    - name: gateway-infra
+      namespace: default
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /pagos
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: pagos-service
+          port: 80
